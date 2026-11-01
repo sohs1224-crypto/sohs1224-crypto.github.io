@@ -21,8 +21,8 @@ button.ghost{background:transparent;color:var(--ac);border:1px solid var(--ac)}
 button:disabled{opacity:.45}
 input[type=text],textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:6px 0}
 textarea{min-height:64px;resize:vertical}
-label.opt{display:block;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:6px 0;cursor:pointer}
-label.opt.on{border-color:var(--ac);background:var(--ac2)}
+label.opt{display:block;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:8px 0;cursor:pointer}
+label.opt.on{border:2px solid var(--ac);background:var(--ac);color:#fff;font-weight:600;padding:11px}
 .rate{display:flex;gap:6px;margin:6px 0 12px}
 .rate button{flex:1;padding:10px 0;background:var(--bg);color:var(--tx);border:1px solid var(--bd)}
 .rate button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
@@ -34,6 +34,14 @@ ul{padding-left:18px;margin:6px 0}
 .host{border:1px dashed var(--ac)}
 .msg{font-size:14px;margin:8px 0;padding:8px 10px;background:var(--bg);border-radius:8px}
 #qr{display:flex;justify-content:center;padding:12px;background:#fff;border-radius:10px;margin-top:10px}
+#cl{max-height:260px;overflow-y:auto;background:var(--bg);border-radius:10px;padding:8px 10px;margin:8px 0}
+.cm{font-size:14px;margin:8px 0;word-break:break-word}
+.cm .n{font-weight:600}
+.cm .t{font-size:11px;color:var(--sub);margin-left:6px}
+.cm.me .n{color:var(--ac)}
+.crow{display:flex;gap:8px;align-items:center}
+.crow input{margin:0;flex:1}
+.crow button{width:auto;padding:10px 16px}
 </style>
 </head>
 <body>
@@ -43,11 +51,11 @@ ul{padding-left:18px;margin:6px 0}
 const SB="https://omtwhlhllfwkhhsbfcog.supabase.co",KEY="sb_publishable_uRa6pwO_vj2jHYHOzWEKcQ_--9LGiII";
 const TOPIC="우리 반 청소 당번을 어떤 규칙으로 정할까?";
 const OPTIONS=["번호순으로 돌아가며 똑같이","시간 여유가 많은 사람이 더 많이","모두 매일 조금씩 나눠서","매주 제비뽑기로 정하기"];
-const ROLES=["학원 때문에 방과 후 시간이 거의 없는 학생","방과 후 시간이 넉넉한 학생","몸이 약해서 무거운 청소가 힘든 학생","청소를 좋아하고 잘하는 학생"];
+const ROLES=["학원 때문에 방과 후 시간이 거의 없는 학생","방과 후 시간이 넉넉한 학생","몸이 약해서 무거운 청소가 힘든 학생","청소 당번은 모두가 똑같이 책임져야 한다고 믿는 학생"];
 const PH=["대기실","1차 토론","2차 토론 (무지의 베일)","결과"];
 const $=document.getElementById("app");
 const HOST=new URLSearchParams(location.search).get("host")||"";
-let S={phase:0,players:[]},mine=null,draft={},err="",lastKey="",showQR=false,resetArm=false,loaded=false;
+let S={phase:0,players:[]},mine=null,draft={},err="",lastKey="",showQR=false,resetArm=false,loaded=false,CHAT=[],chatErr="",chatSig="";
 try{mine=JSON.parse(localStorage.getItem("veil_me")||"null")}catch(e){}
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
@@ -59,11 +67,42 @@ async function rpc(fn,body){
 }
 async function poll(){
   try{S=await rpc("get_state");loaded=true;if(err==="연결이 불안정해요")err=""}catch(e){if(!loaded)err="연결이 불안정해요"}
+  if(loaded){try{CHAT=(await rpc("get_chat"))||[]}catch(e){}}
   if(mine&&loaded&&!S.players.find(p=>p.id===mine.id)){mine=null;localStorage.removeItem("veil_me")}
-  render();
+  render();updateChat();
 }
 const me=()=>mine&&S.players.find(p=>p.id===mine.id);
 function msg(m){err=m;lastKey="";render()}
+
+const csig=()=>CHAT.length+":"+(CHAT.length?CHAT[CHAT.length-1].id:0);
+function chatItems(){
+  const m=me();
+  if(!CHAT.length)return `<div class="sub">아직 메시지가 없어요</div>`;
+  return CHAT.map(c=>`<div class="cm${m&&c.nick===m.nick?" me":""}"><span class="n">${esc(c.nick)}</span><span class="t">${c.round}차</span><br>${esc(c.body)}</div>`).join("");
+}
+function chatBox(canSend){
+  chatSig=csig();
+  return `<div class="card"><h2>💬 토론 채팅</h2><div id="cl">${chatItems()}</div>${canSend?`<div class="crow"><input type="text" id="ci" maxlength="200" placeholder="메시지 입력" value="${esc(draft.chat||"")}" oninput="draft.chat=this.value" onkeydown="if(event.key==='Enter'&&!event.isComposing)sendChat()"><button onclick="sendChat()">보내기</button></div>`:`<p class="sub">채팅은 1차, 2차 토론 중에만 보낼 수 있어요.</p>`}${chatErr?`<div class="msg">${esc(chatErr)}</div>`:""}</div>`;
+}
+function scrollChat(){const el=document.getElementById("cl");if(el)el.scrollTop=el.scrollHeight}
+function updateChat(){
+  if(csig()===chatSig)return;
+  const el=document.getElementById("cl");
+  if(!el){chatSig=csig();return}
+  const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<40;
+  el.innerHTML=chatItems();chatSig=csig();
+  if(atBottom)el.scrollTop=el.scrollHeight;
+}
+function chatMsg(m){chatErr=m;lastKey="";render();setTimeout(()=>{chatErr="";lastKey="";render()},3000)}
+async function sendChat(){
+  const t=(draft.chat||"").trim();
+  if(!t||!mine)return;
+  try{
+    await rpc("send_chat",{p_token:mine.token,p_text:t});
+    draft.chat="";const i=document.getElementById("ci");if(i)i.value="";
+    await poll();scrollChat();
+  }catch(e){chatMsg(e.message==="chat closed"?"지금은 채팅을 보낼 수 없어요":"전송 실패: "+e.message)}
+}
 
 async function join(){
   const nick=(draft.nick||"").trim();if(!nick){return msg("닉네임을 입력하세요")}
@@ -82,8 +121,10 @@ function toggleQR(){showQR=!showQR;lastKey="";render()}
 function rate(k,v){draft[k]=v;document.querySelectorAll('[data-k="'+k+'"] button').forEach(b=>b.classList.toggle("on",+b.dataset.v===v))}
 function pick(i){draft.v=i;document.querySelectorAll("label.opt").forEach((l,j)=>l.classList.toggle("on",j===i))}
 async function submit(r){
-  if(draft.v==null||!draft.c||!draft.s){return msg("선택지, 갈등 정도, 만족도를 모두 골라 주세요")}
-  try{await rpc("submit_round",{p_token:mine.token,p_round:r,p_v:draft.v,p_reason:(draft.reason||"").trim(),p_c:draft.c,p_s:draft.s});draft={};err="";await poll()}
+  if(draft.v==null)return msg("규칙을 하나 골라 주세요");
+  if(!draft.c)return msg("갈등 정도(1~5)를 골라 주세요");
+  if(!draft.s)return msg("만족도(1~5)를 골라 주세요");
+  try{await rpc("submit_round",{p_token:mine.token,p_round:r,p_v:draft.v,p_reason:(draft.reason||"").trim(),p_c:draft.c,p_s:draft.s});draft.v=null;draft.reason="";draft.c=null;draft.s=null;err="";await poll()}
   catch(e){msg("제출 실패: "+e.message)}
 }
 async function submitAccept(){
@@ -148,7 +189,7 @@ function hostPanel(){
 function render(){
   if(!loaded&&!err)return;
   const p=S.phase,m=me();
-  const key=[p,!!m,m&&m.v1!=null,m&&m.v2!=null,err,draft.show,showQR,resetArm,p===0||p===3?JSON.stringify(S.players):""].join("|");
+  const key=[p,!!m,m&&m.v1!=null,m&&m.v2!=null,err,chatErr,draft.show,showQR,resetArm,p===0||p===3?JSON.stringify(S.players):""].join("|");
   if(key===lastKey){const hc=document.getElementById("hc");if(hc&&HOST){const t=document.createElement("div");t.innerHTML=hostPanel();hc.textContent=t.querySelector("#hc").textContent}return}
   lastKey=key;
   let h=`<h1>무지의 베일 토론</h1><p class="sub">${PH[p]}${m?" · "+esc(m.nick):""}</p>`;
@@ -158,10 +199,11 @@ function render(){
   }else if(p===0){
     h+=`<div class="card"><h2>${esc(TOPIC)}</h2><p class="sub">진행자가 시작할 때까지 기다려 주세요.</p><b>참여자 (${S.players.length}명)</b><ul>${S.players.map(x=>`<li>${esc(x.nick)}</li>`).join("")}</ul></div>`;
   }else if(p===1||p===2){
-    h+=m["v"+p]!=null?`<div class="card"><h2>제출 완료 ✅</h2><p class="sub">진행자가 다음 단계로 넘길 때까지 기다려 주세요. 토론하며 이야기를 나눠 보세요!</p></div>`:form(p,m);
-  }else h+=result();
+    h+=(m["v"+p]!=null?`<div class="card"><h2>제출 완료 ✅</h2><p class="sub">진행자가 다음 단계로 넘길 때까지 기다려 주세요. 아래 채팅으로 이야기를 나눠 보세요!</p></div>`:form(p,m))+chatBox(true);
+  }else h+=result()+(CHAT.length?chatBox(false):"");
   if(err&&m&&p!==1&&p!==2&&p!==3)h+=`<div class="msg">${esc(err)}</div>`;
   $.innerHTML=h;
+  scrollChat();
   if(showQR&&HOST&&window.QRCode){const q=document.getElementById("qr");if(q)new QRCode(q,{text:location.origin+location.pathname,width:200,height:200})}
   if(err&&err!=="연결이 불안정해요"&&p!==1&&p!==2)setTimeout(()=>{err="";lastKey="";render()},3500);
 }
